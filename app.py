@@ -18,6 +18,11 @@ from models.text_processor import TextPreprocessor
 from models.semantic_analyzer import SemanticAnalyzer
 from models.ranking_system import ResumeRankingSystem
 
+from models.prompt_engineer import PromptEngineer
+from models.mcq_generator import MCQGenerator
+from models.chatbot_rag import RAGChatbot
+import json
+
 # ================================
 # ENHANCED CLASSES FOR UI FEATURES
 # ================================
@@ -348,15 +353,33 @@ def main():
     
     # Sidebar for navigation
     st.sidebar.title("🎯 AI Resume Ranking")
-    app_mode = st.sidebar.selectbox(
-        "Choose Application Mode",
-        ["Company Dashboard", "User Assessment"]
-    )
+    #app_mode = st.sidebar.selectbox(
+     #   "Choose Application Mode",
+      #  ["Company Dashboard", "User Assessment"]
+    #)
+     app_mode = st.sidebar.selectbox(
+    "Choose Application Mode",
+    [
+        "Company Dashboard", 
+        "User Assessment",
+        "Experiment 7: Prompt Engineering",
+        "Experiment 8: MCQ Generation",
+        "Experiment 9: AI Chatbot"
+    ]
+)
+
     
     if app_mode == "Company Dashboard":
-        company_interface(ranking_system)
-    else:
-        user_interface(ranking_system)
+    	company_interface(ranking_system)
+    elif app_mode == "User Assessment":
+    	user_interface(ranking_system)
+    elif app_mode == "Experiment 7: Prompt Engineering":
+    	experiment7_interface(ranking_system)
+    elif app_mode == "Experiment 8: MCQ Generation":
+    	experiment8_interface(ranking_system)
+    elif app_mode == "Experiment 9: AI Chatbot":
+    	experiment9_interface(ranking_system)
+
 
 
 def company_interface(ranking_system):
@@ -542,6 +565,473 @@ def user_interface(ranking_system):
                     st.warning("Good match! Consider developing a few more skills.")
                 else:
                     st.error("Consider gaining more relevant skills before applying.")
+
+
+
+# ============================================================================
+# EXPERIMENT INTERFACE FUNCTIONS - Add these to your app.py
+# ============================================================================
+
+def experiment7_interface(ranking_system):
+    """Experiment 7: Prompt Engineering Interface"""
+    st.title("🎯 Experiment 7: Customized Prompts for Recruitment")
+    st.markdown("### Prompt Engineering for Customer Service Context")
+
+    # Initialize prompt engineer
+    prompt_engineer = PromptEngineer()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("📄 Upload Resume")
+        resume_file = st.file_uploader(
+            "Choose resume file",
+            type=['pdf', 'docx', 'txt'],
+            key="exp7_resume"
+        )
+
+    with col2:
+        st.subheader("📋 Job Description")
+        job_description = st.text_area(
+            "Paste job description:",
+            height=200,
+            key="exp7_jd"
+        )
+
+    if resume_file and job_description.strip():
+        if st.button("🚀 Generate Prompts", type="primary"):
+            with st.spinner("Processing..."):
+                # Process resume using your existing system
+                file_extension = os.path.splitext(resume_file.name)[1].lower()
+                result = ranking_system.process_single_resume(
+                    file_content=resume_file.read(),
+                    file_extension=file_extension
+                )
+
+                if result['success']:
+                    # Calculate similarity
+                    resume_text = result['processed_text']
+                    similarity_score = ranking_system.analyzer.calculate_similarity(
+                        resume_text, job_description
+                    )
+
+                    # Extract skills using your existing system
+                    resume_skills = result.get('skills', [])
+                    jd_skills = ranking_system.preprocessor.extract_skills(job_description)
+
+                    # Create skill gap analysis using your existing SkillGapAnalyzer
+                    gap_analyzer = SkillGapAnalyzer()
+                    gap_analysis = gap_analyzer.analyze_skill_gaps(resume_skills, jd_skills)
+
+                    skills_data = {
+                        'resume_skills': resume_skills,
+                        'jd_skills': jd_skills
+                    }
+
+                    # Display similarity score
+                    st.success(f"✅ Semantic Similarity Score: {similarity_score:.2%}")
+
+                    # Create three tabs for different prompt types
+                    tab1, tab2, tab3 = st.tabs([
+                        "Basic Prompt", 
+                        "Advanced Prompt", 
+                        "Contextual Prompt"
+                    ])
+
+                    with tab1:
+                        st.subheader("📝 Basic Prompt Engineering")
+                        st.markdown("**Purpose:** Simple, straightforward comparison")
+                        basic_prompt = prompt_engineer.create_basic_prompt(
+                            resume_text, job_description, similarity_score
+                        )
+                        st.text_area("Generated Basic Prompt", basic_prompt, height=300)
+                        st.info("**Use Case:** Quick screening, initial filtering")
+
+                    with tab2:
+                        st.subheader("📝 Advanced Prompt Engineering")
+                        st.markdown("**Purpose:** Comprehensive analysis with actionable insights")
+                        advanced_prompt = prompt_engineer.create_advanced_prompt(
+                            resume_text, job_description, similarity_score, skills_data
+                        )
+                        st.text_area("Generated Advanced Prompt", advanced_prompt, height=400)
+                        st.info("**Use Case:** Detailed candidate evaluation, feedback generation")
+
+                    with tab3:
+                        st.subheader("📝 Contextual Prompt Engineering")
+                        st.markdown("**Purpose:** Domain-specific, role-oriented assessment")
+                        contextual_prompt = prompt_engineer.create_contextual_prompt(
+                            resume_text, job_description, similarity_score, 
+                            skills_data, gap_analysis
+                        )
+                        st.text_area("Generated Contextual Prompt", contextual_prompt, height=500)
+                        st.info("**Use Case:** Career counseling, personalized recommendations")
+
+                    # Comparison table
+                    st.markdown("---")
+                    st.subheader("📊 Prompt Engineering Comparison")
+                    comparison_df = pd.DataFrame(prompt_engineer.get_prompt_comparison())
+                    st.table(comparison_df)
+
+                else:
+                    st.error(f"Error processing resume: {result.get('error')}")
+    else:
+        st.info("👈 Please upload a resume and enter a job description to begin")
+
+
+def experiment8_interface(ranking_system):
+    """Experiment 8: MCQ Generation Interface"""
+    st.title("📝 Experiment 8: MCQ Generation using LangChain")
+    st.markdown("### Automated Assessment Generation for Job Matching")
+
+    # API Key input
+    st.sidebar.subheader("🔑 OpenAI Configuration")
+    openai_api_key = st.sidebar.text_input(
+        "Enter OpenAI API Key", 
+        type="password",
+        key="exp8_api_key"
+    )
+
+    if not openai_api_key:
+        st.warning("⚠️ Please enter your OpenAI API key in the sidebar")
+        st.info("""
+        **How to get an OpenAI API Key:**
+        1. Visit https://platform.openai.com/
+        2. Sign up or log in
+        3. Navigate to API Keys section
+        4. Create a new API key
+        5. Paste it in the sidebar
+        """)
+        return
+
+    # Initialize MCQ generator
+    mcq_generator = MCQGenerator(openai_api_key)
+
+    # Mode selection
+    mode = st.radio(
+        "Select Generation Mode",
+        ["Job Description Based", "Resume + JD Based"],
+        key="exp8_mode"
+    )
+
+    num_questions = st.slider("Number of Questions", 3, 10, 5, key="exp8_num")
+
+    if mode == "Job Description Based":
+        st.subheader("🎯 Generate MCQs from Job Description")
+        jd_text = st.text_area(
+            "Enter Job Description",
+            height=300,
+            placeholder="Paste job description here...",
+            key="exp8_jd"
+        )
+
+        if st.button("Generate MCQs", type="primary") and jd_text:
+            with st.spinner("Generating questions using LLM..."):
+                result = mcq_generator.generate_jd_based_mcqs(jd_text, num_questions)
+
+                if result.get('success'):
+                    st.success("✅ MCQs Generated Successfully!")
+
+                    # Parse MCQ response
+                    parsed = mcq_generator.parse_mcq_response(result['content'])
+
+                    if parsed.get('success'):
+                        mcqs_data = parsed['mcqs']
+
+                        # Display MCQs
+                        for q in mcqs_data['questions']:
+                            st.markdown(f"### Question {q['question_number']}")
+                            st.markdown(f"**Topic:** {q['topic']}")
+                            st.markdown(f"**{q['question_text']}**")
+
+                            for opt in q['options']:
+                                st.markdown(f"- **{opt['option_id']}.** {opt['text']}")
+
+                            with st.expander("Show Answer & Explanation"):
+                                st.success(f"**Correct Answer:** {q['correct_answer']}")
+                                st.info(f"**Explanation:** {q['explanation']}")
+
+                            st.markdown("---")
+
+                        # Download button
+                        st.download_button(
+                            label="📥 Download MCQs (JSON)",
+                            data=json.dumps(mcqs_data, indent=2),
+                            file_name="generated_mcqs.json",
+                            mime="application/json"
+                        )
+                    else:
+                        st.warning("Could not parse as JSON. Showing raw response:")
+                        st.text_area("Generated MCQs", parsed.get('raw_content'), height=400)
+                else:
+                    st.error(f"Error: {result.get('error')}")
+
+    else:  # Resume + JD Based
+        st.subheader("👔 Generate Interview MCQs")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            resume_file = st.file_uploader(
+                "Upload Resume",
+                type=['pdf', 'docx', 'txt'],
+                key="exp8_resume"
+            )
+
+        with col2:
+            jd_text = st.text_area(
+                "Job Description",
+                height=200,
+                key="exp8_jd2"
+            )
+
+        if st.button("Generate Interview MCQs", type="primary") and resume_file and jd_text:
+            with st.spinner("Analyzing resume and generating questions..."):
+                # Process resume
+                file_extension = os.path.splitext(resume_file.name)[1].lower()
+                result = ranking_system.process_single_resume(
+                    file_content=resume_file.read(),
+                    file_extension=file_extension
+                )
+
+                if result['success']:
+                    resume_text = result['processed_text']
+
+                    # Generate MCQs
+                    mcq_result = mcq_generator.generate_resume_based_mcqs(
+                        resume_text, jd_text, num_questions
+                    )
+
+                    if mcq_result.get('success'):
+                        st.success("✅ Interview Questions Generated!")
+
+                        parsed = mcq_generator.parse_mcq_response(mcq_result['content'])
+
+                        if parsed.get('success'):
+                            mcqs_data = parsed['mcqs']
+
+                            for q in mcqs_data['questions']:
+                                st.markdown(f"#### Q{q['question_number']}: {q['question_text']}")
+                                st.caption(f"Topic: {q['topic']}")
+
+                                for opt in q['options']:
+                                    st.markdown(f"{opt['option_id']}. {opt['text']}")
+
+                                with st.expander("View Answer"):
+                                    st.success(f"✓ Correct Answer: {q['correct_answer']}")
+                                    st.markdown(f"**Explanation:** {q['explanation']}")
+
+                                st.markdown("---")
+
+                            st.download_button(
+                                label="📥 Download Interview Questions",
+                                data=json.dumps(mcqs_data, indent=2),
+                                file_name="interview_mcqs.json",
+                                mime="application/json"
+                            )
+                        else:
+                            st.text_area("Generated Questions", parsed.get('raw_content'), height=400)
+                    else:
+                        st.error(f"Error: {mcq_result.get('error')}")
+                else:
+                    st.error(f"Error processing resume: {result.get('error')}")
+
+
+def experiment9_interface(ranking_system):
+    """Experiment 9: AI Chatbot Interface"""
+    st.title("💬 Experiment 9: AI Chatbot for Job Matching")
+    st.markdown("### Interactive Q&A System using RAG")
+
+    # Initialize session state for chat
+    if 'exp9_chat_history' not in st.session_state:
+        st.session_state.exp9_chat_history = []
+    if 'exp9_chatbot' not in st.session_state:
+        st.session_state.exp9_chatbot = None
+    if 'exp9_vectorstore_ready' not in st.session_state:
+        st.session_state.exp9_vectorstore_ready = False
+
+    # API Key
+    st.sidebar.subheader("🔑 OpenAI Configuration")
+    openai_api_key = st.sidebar.text_input(
+        "Enter OpenAI API Key",
+        type="password",
+        key="exp9_api_key"
+    )
+
+    if not openai_api_key:
+        st.warning("⚠️ Please enter your OpenAI API key in the sidebar")
+        st.info("Get your API key from: https://platform.openai.com/api-keys")
+        return
+
+    # Document upload
+    st.sidebar.subheader("📄 Upload Documents")
+    resume_file = st.sidebar.file_uploader(
+        "Upload Resume",
+        type=['pdf', 'docx', 'txt'],
+        key="exp9_resume"
+    )
+
+    jd_input_method = st.sidebar.radio(
+        "Job Description Input",
+        ["Paste Text", "Upload File"],
+        key="exp9_jd_method"
+    )
+
+    if jd_input_method == "Paste Text":
+        jd_text = st.sidebar.text_area(
+            "Paste Job Description",
+            height=200,
+            key="exp9_jd_text"
+        )
+        jd_file = None
+    else:
+        jd_file = st.sidebar.file_uploader(
+            "Upload Job Description",
+            type=['pdf', 'docx', 'txt'],
+            key="exp9_jd_file"
+        )
+        jd_text = None
+
+    # Initialize chatbot
+    if st.sidebar.button("🚀 Initialize Chatbot"):
+        if resume_file:
+            with st.spinner("Processing documents and creating knowledge base..."):
+                try:
+                    # Process resume
+                    file_extension = os.path.splitext(resume_file.name)[1].lower()
+                    resume_result = ranking_system.process_single_resume(
+                        file_content=resume_file.read(),
+                        file_extension=file_extension
+                    )
+
+                    if not resume_result['success']:
+                        st.error(f"Error processing resume: {resume_result.get('error')}")
+                        return
+
+                    resume_text = resume_result['processed_text']
+
+                    # Get JD text
+                    if jd_file:
+                        jd_extension = os.path.splitext(jd_file.name)[1].lower()
+                        jd_result = ranking_system.process_single_resume(
+                            file_content=jd_file.read(),
+                            file_extension=jd_extension
+                        )
+                        job_description = jd_result['processed_text']
+                    elif jd_text:
+                        job_description = jd_text
+                    else:
+                        st.sidebar.warning("Please provide a job description")
+                        return
+
+                    # Initialize chatbot
+                    chatbot = RAGChatbot(openai_api_key)
+
+                    # Create vectorstore
+                    vs_result = chatbot.create_vectorstore(resume_text, job_description)
+
+                    if vs_result['success']:
+                        # Calculate similarity
+                        similarity_score = ranking_system.analyzer.calculate_similarity(
+                            resume_text, job_description
+                        )
+
+                        # Initialize QA chain
+                        chain_result = chatbot.initialize_qa_chain(
+                            similarity_score,
+                            st.session_state.exp9_chat_history
+                        )
+
+                        if chain_result['success']:
+                            st.session_state.exp9_chatbot = chatbot
+                            st.session_state.exp9_similarity = similarity_score
+                            st.session_state.exp9_system_context = chain_result['system_context']
+                            st.session_state.exp9_vectorstore_ready = True
+                            st.session_state.exp9_chat_history = []
+                            st.sidebar.success("✅ Chatbot initialized!")
+                        else:
+                            st.sidebar.error(f"Error: {chain_result['error']}")
+                    else:
+                        st.sidebar.error(f"Error: {vs_result['error']}")
+
+                except Exception as e:
+                    st.sidebar.error(f"Error: {str(e)}")
+        else:
+            st.sidebar.warning("Please upload a resume")
+
+    # Chat interface
+    if st.session_state.exp9_vectorstore_ready:
+        # Display metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Match Score", f"{st.session_state.exp9_similarity:.1%}")
+        with col2:
+            match_level = ("Excellent" if st.session_state.exp9_similarity > 0.8 else 
+                          "Good" if st.session_state.exp9_similarity > 0.6 else 
+                          "Fair" if st.session_state.exp9_similarity > 0.4 else "Poor")
+            st.metric("Match Level", match_level)
+        with col3:
+            st.metric("Messages", len(st.session_state.exp9_chat_history))
+
+        st.markdown("---")
+
+        # Sample questions
+        with st.expander("💡 Sample Questions You Can Ask"):
+            chatbot = st.session_state.exp9_chatbot
+            sample_q = chatbot.get_sample_questions()
+
+            tab1, tab2 = st.tabs(["For Candidates", "For Recruiters"])
+
+            with tab1:
+                for q in sample_q["Candidate"]:
+                    st.markdown(f"- {q}")
+
+            with tab2:
+                for q in sample_q["Recruiter"]:
+                    st.markdown(f"- {q}")
+
+        # Display chat history
+        for message in st.session_state.exp9_chat_history:
+            with st.chat_message(message['role']):
+                st.markdown(message['content'])
+
+        # User input
+        user_input = st.chat_input("Ask me anything about this job-candidate match...")
+
+        if user_input:
+            # Add user message
+            st.session_state.exp9_chat_history.append({
+                'role': 'user',
+                'content': user_input
+            })
+
+            with st.chat_message("user"):
+                st.markdown(user_input)
+
+            # Get bot response
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    chatbot = st.session_state.exp9_chatbot
+                    response = chatbot.get_response(
+                        user_input,
+                        st.session_state.exp9_system_context
+                    )
+
+                    if response['success']:
+                        st.markdown(response['answer'])
+                        st.session_state.exp9_chat_history.append({
+                            'role': 'assistant',
+                            'content': response['answer']
+                        })
+                    else:
+                        st.error(f"Error: {response['error']}")
+
+        # Clear chat button
+        if st.button("🗑️ Clear Conversation"):
+            st.session_state.exp9_chat_history = []
+            st.rerun()
+
+    else:
+        st.info("👈 Please upload documents and initialize the chatbot in the sidebar")
 
 
 if __name__ == "__main__":
