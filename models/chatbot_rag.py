@@ -1,68 +1,74 @@
-# ============================================================================
-# EXPERIMENT 9 MODULE - RAG Chatbot
-# Add this to a new file: models/chatbot_rag.py
-# CORRECTED VERSION - Fixed LangChain imports
+# ============================================================================ 
+# EXPERIMENT 9 MODULE - RAG Chatbot (GEMINI VERSION, Simplified - No LangChain)
 # ============================================================================
 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
+import google.generativeai as genai
 
 class RAGChatbot:
-    """RAG-based chatbot for job matching Q&A"""
+    """RAG-based chatbot for job matching Q&A using Google Gemini"""
     
-    def __init__(self, openai_api_key=None):
-        self.api_key = openai_api_key
-        self.vectorstore = None
-        self.llm = None
-        if openai_api_key:
-            self.initialize_llm(openai_api_key)
+    def __init__(self, gemini_api_key=None):
+        self.api_key = gemini_api_key
+        self.resume_text = ""
+        self.jd_text = ""
+        self.similarity_score = 0.0
+        self.chat_history = []
+        self.model = None
+        self.system_context = ""
+        
+        if gemini_api_key:
+            self.initialize_llm(gemini_api_key)
     
     def initialize_llm(self, api_key):
-        """Initialize LLM with API key"""
+        """Initialize the Gemini LLM"""
         self.api_key = api_key
-        self.llm = ChatOpenAI(
-            model="gpt-3.5-turbo",
-            temperature=0.7,
-            api_key=api_key
-        )
+        try:
+            genai.configure(api_key=api_key)
+            self.model = genai.GenerativeModel(
+                'gemini-2.0-flash-exp',
+                generation_config={
+                    'temperature': 0.7,
+                    'top_p': 0.95,
+                    'top_k': 40,
+                    'max_output_tokens': 2048,
+                }
+            )
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
     
     def create_vectorstore(self, resume_text, jd_text):
-        """Create FAISS vectorstore from documents"""
+        """Store resume and job description text"""
         if not self.api_key:
             return {"success": False, "error": "API key not initialized"}
         
         try:
-            # Combine documents
+            self.resume_text = resume_text
+            self.jd_text = jd_text
+            
+            # Calculate approximate chunks for user feedback
             combined_text = f"RESUME:\n{resume_text}\n\nJOB DESCRIPTION:\n{jd_text}"
+            estimated_chunks = len(combined_text) // 1000 + 1
             
-            # Split text into chunks
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200,
-                length_function=len
-            )
-            chunks = text_splitter.split_text(combined_text)
-            
-            # Create embeddings and vectorstore
-            embeddings = OpenAIEmbeddings(api_key=self.api_key)
-            self.vectorstore = FAISS.from_texts(chunks, embeddings)
-            
-            return {"success": True, "chunks": len(chunks)}
+            return {"success": True, "chunks": estimated_chunks}
+        
         except Exception as e:
             return {"success": False, "error": str(e)}
     
     def initialize_qa_chain(self, similarity_score, chat_history=[]):
-        """Initialize conversational retrieval chain"""
-        if not self.vectorstore or not self.llm:
-            return {"success": False, "error": "Vectorstore or LLM not initialized"}
+        """Initialize conversational context"""
+        if not self.resume_text or not self.jd_text:
+            return {"success": False, "error": "Resume or Job Description not loaded"}
+        
+        if not self.model:
+            return {"success": False, "error": "Gemini model not initialized"}
         
         try:
-            # System context
-            system_context = f"""You are an intelligent recruitment assistant chatbot. You help candidates and recruiters 
-understand job-candidate matches.
+            self.similarity_score = similarity_score
+            self.chat_history = chat_history
+            
+            self.system_context = f"""You are an intelligent recruitment assistant chatbot.
+You help candidates and recruiters understand job-candidate matches.
 
 You have access to:
 1. A candidate's resume
@@ -77,54 +83,72 @@ Answer questions about:
 - Career advice and next steps
 
 Be helpful, professional, and provide specific, actionable advice.
+Based on the resume and job description provided, give clear and concise answers.
 """
             
-            # Create memory
-            memory = ConversationBufferMemory(
-                memory_key="chat_history",
-                return_messages=True,
-                output_key="answer"
-            )
-            
-            # Add previous history to memory
-            for msg in chat_history:
-                if msg['role'] == 'user':
-                    memory.chat_memory.add_user_message(msg['content'])
-                else:
-                    memory.chat_memory.add_ai_message(msg['content'])
-            
-            # Create chain
-            self.qa_chain = ConversationalRetrievalChain.from_llm(
-                llm=self.llm,
-                retriever=self.vectorstore.as_retriever(search_kwargs={"k": 3}),
-                memory=memory,
-                return_source_documents=True,
-                verbose=False
-            )
-            
-            return {"success": True, "system_context": system_context}
+            return {"success": True, "system_context": self.system_context}
+        
         except Exception as e:
             return {"success": False, "error": str(e)}
     
-    def get_response(self, user_query, system_context):
-        """Get chatbot response for user query"""
-        if not self.qa_chain:
-            return {"success": False, "error": "QA chain not initialized"}
+    def get_response(self, user_query, system_context=""):
+        """Generate a response using Gemini AI"""
+        if not self.model:
+            return {"success": False, "error": "Model not initialized"}
         
         try:
-            # Enhanced query with system context
-            enhanced_query = f"{system_context}\n\nUser Question: {user_query}"
+            # Build the complete context with resume, JD, and conversation history
+            context_parts = [
+                "=== CONTEXT ===",
+                "",
+                "RESUME:",
+                self.resume_text[:3000],  # Limit to first 3000 chars to stay within token limits
+                "",
+                "JOB DESCRIPTION:",
+                self.jd_text[:3000],
+                "",
+                f"SIMILARITY SCORE: {self.similarity_score:.2%}",
+                "",
+                "=== INSTRUCTIONS ===",
+                system_context if system_context else self.system_context,
+                "",
+            ]
             
-            # Get response
-            response = self.qa_chain({"question": enhanced_query})
+            # Add conversation history
+            if self.chat_history:
+                context_parts.append("=== CONVERSATION HISTORY ===")
+                for msg in self.chat_history[-5:]:  # Last 5 messages
+                    role = "User" if msg['role'] == 'user' else "Assistant"
+                    context_parts.append(f"{role}: {msg['content']}")
+                context_parts.append("")
+            
+            # Add current question
+            context_parts.extend([
+                "=== CURRENT QUESTION ===",
+                user_query,
+                "",
+                "Please provide a clear, professional, and helpful answer based on the resume and job description above."
+            ])
+            
+            full_prompt = "\n".join(context_parts)
+            
+            # Generate response
+            response = self.model.generate_content(full_prompt)
+            
+            # Extract text from response
+            answer_text = response.text if hasattr(response, 'text') else str(response)
             
             return {
                 "success": True,
-                "answer": response['answer'],
-                "source_documents": response.get('source_documents', [])
+                "answer": answer_text,
+                "source_documents": []  # For compatibility with existing code
             }
+        
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {
+                "success": False, 
+                "error": f"Error generating response: {str(e)}"
+            }
     
     def get_sample_questions(self):
         """Return sample questions for candidates and recruiters"""
@@ -144,3 +168,8 @@ Be helpful, professional, and provide specific, actionable advice.
                 "What concerns should I have about this candidate?"
             ]
         }
+    
+    def clear_history(self):
+        """Clear chat history"""
+        self.chat_history = []
+        return {"success": True, "message": "Chat history cleared"}

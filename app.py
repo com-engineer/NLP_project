@@ -12,16 +12,17 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Import your existing classes from the colab code
+# Import your existing classes from the models folder
 from models.file_handler import ResumeFileHandler
 from models.text_processor import TextPreprocessor
 from models.semantic_analyzer import SemanticAnalyzer
 from models.ranking_system import ResumeRankingSystem
 
-# NEW IMPORTS for Experiments 7, 8, 9
+# NEW IMPORTS for Experiments 7, 8, 9 (Using Gemini versions)
 from models.prompt_engineer import PromptEngineer
 from models.mcq_generator import MCQGenerator
 from models.chatbot_rag import RAGChatbot
+
 import json
 
 # ================================
@@ -74,12 +75,14 @@ class SkillGapAnalyzer:
         for skill in missing_skills:
             skill_lower = skill.lower()
             category = None
+            
             for cat, skills in self.skill_database.items():
                 if skill_lower in skills:
                     category = cat
                     break
             
             courses = self.course_recommendations.get(skill_lower, [f"Search for '{skill}' courses on Coursera/Udemy"])
+            
             suggestion = {
                 'skill': skill,
                 'category': category or 'general',
@@ -88,6 +91,7 @@ class SkillGapAnalyzer:
                 'learning_path': self.get_learning_path(skill_lower, category)
             }
             suggestions.append(suggestion)
+        
         return suggestions
     
     def get_learning_path(self, skill, category):
@@ -100,532 +104,366 @@ class SkillGapAnalyzer:
         }
         return paths.get(skill, ['Research fundamentals', 'Online courses', 'Hands-on practice', 'Build projects'])
 
-class CompanyDashboard:
-    """Enhanced dashboard for company view"""
-    
-    def __init__(self, ranking_system):
-        self.ranking_system = ranking_system
-        self.results_history = []
-    
-    def process_bulk_resumes(self, uploaded_files, job_description):
-        """Process multiple resumes for company ranking"""
-        results = []
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for i, uploaded_file in enumerate(uploaded_files):
-            status_text.text(f'Processing {uploaded_file.name}...')
-            progress_bar.progress((i + 1) / len(uploaded_files))
-            
-            file_extension = os.path.splitext(uploaded_file.name)[1].lower()
-            
-            try:
-                result = self.ranking_system.process_single_resume(
-                    file_content=uploaded_file.read(),
-                    file_extension=file_extension
-                )
-                
-                if result['success']:
-                    similarity = self.ranking_system.analyzer.calculate_similarity(
-                        result['processed_text'],
-                        job_description
-                    )
-                    
-                    result.update({
-                        'file_name': uploaded_file.name,
-                        'similarity_score': similarity,
-                        'match_level': self.ranking_system.get_match_level(similarity),
-                        'processed_at': datetime.now()
-                    })
-                    results.append(result)
-                else:
-                    st.error(f"Failed to process {uploaded_file.name}: {result.get('error', 'Unknown error')}")
-            except Exception as e:
-                st.error(f"Error processing {uploaded_file.name}: {str(e)}")
-        
-        # Sort by similarity score
-        results.sort(key=lambda x: x['similarity_score'], reverse=True)
-        for i, result in enumerate(results):
-            result['rank'] = i + 1
-        
-        status_text.text('Processing complete!')
-        progress_bar.progress(1.0)
-        
-        return results
-
-class UserAssessment:
-    """Enhanced assessment for individual users"""
-    
-    def __init__(self, ranking_system):
-        self.ranking_system = ranking_system
-        self.gap_analyzer = SkillGapAnalyzer()
-    
-    def assess_resume(self, resume_file, job_description):
-        """Comprehensive resume assessment"""
-        file_extension = os.path.splitext(resume_file.name)[1].lower()
-        
-        result = self.ranking_system.process_single_resume(
-            file_content=resume_file.read(),
-            file_extension=file_extension
-        )
-        
-        if not result['success']:
-            return {'error': result['error']}
-        
-        similarity = self.ranking_system.analyzer.calculate_similarity(
-            result['processed_text'],
-            job_description
-        )
-        
-        jd_skills = self.ranking_system.preprocessor.extract_skills(job_description)
-        resume_skills = result.get('skills', [])
-        
-        gap_analysis = self.gap_analyzer.analyze_skill_gaps(resume_skills, jd_skills)
-        suggestions = self.gap_analyzer.get_improvement_suggestions(gap_analysis['missing_skills'])
-        
-        assessment = {
-            'similarity_score': similarity,
-            'match_level': self.ranking_system.get_match_level(similarity),
-            'resume_skills': resume_skills,
-            'jd_skills': jd_skills,
-            'gap_analysis': gap_analysis,
-            'suggestions': suggestions,
-            'assessment_date': datetime.now(),
-            'file_name': resume_file.name
-        }
-        
-        return assessment
 
 # ================================
-# STREAMLIT UI IMPLEMENTATION
+# MAIN APPLICATION
 # ================================
+
 
 def main():
     """Main Streamlit application"""
     
+    # Page configuration
     st.set_page_config(
-        page_title="AI Resume Ranking System",
+        page_title="Resume Ranking Application",
         page_icon="📄",
-        layout="wide"
+        layout="wide",
+        initial_sidebar_state="expanded"
     )
     
-    # Initialize the ranking system
-    @st.cache_resource
-    def load_ranking_system():
-        return ResumeRankingSystem()
+    # Title and description
+    st.title("📄 Resume Ranking & Analysis System")
+    st.markdown("**Two-sided platform:** Company view for bulk ranking + User view for individual assessment")
     
-    ranking_system = load_ranking_system()
-    
-    # Sidebar for navigation
-    st.sidebar.title("🎯 AI Resume Ranking")
-    
-    # CORRECTED: Proper list formatting with square brackets
-    app_mode = st.sidebar.selectbox(
-        "Choose Application Mode",
-        [
-            "Company Dashboard",
-            "User Assessment",
-            "Experiment 7: Prompt Engineering",
-            "Experiment 8: MCQ Generation",
-            "Experiment 9: AI Chatbot"
-        ]
-    )
-    
-    # Route to appropriate interface
-    if app_mode == "Company Dashboard":
-        company_interface(ranking_system)
-    elif app_mode == "User Assessment":
-        user_interface(ranking_system)
-    elif app_mode == "Experiment 7: Prompt Engineering":
-        experiment7_interface(ranking_system)
-    elif app_mode == "Experiment 8: MCQ Generation":
-        experiment8_interface(ranking_system)
-    elif app_mode == "Experiment 9: AI Chatbot":
-        experiment9_interface(ranking_system)
-
-def company_interface(ranking_system):
-    """Company dashboard interface"""
-    st.title("🏢 Company Dashboard - Bulk Resume Ranking")
-    st.markdown("Upload multiple resumes and get them ranked against your job description")
-    
-    company_dashboard = CompanyDashboard(ranking_system)
-    
-    # Job description input
-    st.subheader("📋 Job Description")
-    job_description = st.text_area(
-        "Enter the job description and requirements:",
-        height=200,
-        placeholder="Paste your job description here..."
-    )
-    
-    # File upload
-    st.subheader("📁 Upload Resumes")
-    uploaded_files = st.file_uploader(
-        "Choose resume files",
-        type=['pdf', 'docx', 'txt'],
-        accept_multiple_files=True,
-        help="Supported formats: PDF, DOCX, TXT"
-    )
-    
-    if uploaded_files and job_description.strip():
-        if st.button("🚀 Process and Rank Resumes", type="primary"):
-            with st.spinner("Processing resumes..."):
-                results = company_dashboard.process_bulk_resumes(uploaded_files, job_description)
-                
-                if results:
-                    st.success(f"Successfully processed {len(results)} resumes!")
-                    
-                    # Display results summary
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Total Resumes", len(results))
-                    with col2:
-                        excellent_count = sum(1 for r in results if r['match_level'] == 'Excellent Match')
-                        st.metric("Excellent Matches", excellent_count)
-                    with col3:
-                        avg_score = np.mean([r['similarity_score'] for r in results])
-                        st.metric("Average Score", f"{avg_score:.2f}")
-                    with col4:
-                        top_score = max(r['similarity_score'] for r in results)
-                        st.metric("Top Score", f"{top_score:.2f}")
-                    
-                    # Detailed results table
-                    st.subheader("📋 Detailed Rankings")
-                    results_df = pd.DataFrame([
-                        {
-                            'Rank': r['rank'],
-                            'Resume': r['file_name'],
-                            'Score': f"{r['similarity_score']:.3f}",
-                            'Match Level': r['match_level'],
-                            'Skills Found': len(r.get('skills', []))
-                        }
-                        for r in results
-                    ])
-                    
-                    st.dataframe(results_df, use_container_width=True)
-                    
-                    # Export functionality
-                    csv = results_df.to_csv(index=False)
-                    st.download_button(
-                        label="📥 Download Results as CSV",
-                        data=csv,
-                        file_name=f"resume_rankings_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime='text/csv'
-                    )
-
-def user_interface(ranking_system):
-    """User assessment interface"""
-    st.title("👤 User Assessment - Resume Analysis")
-    st.markdown("Get detailed feedback on your resume against a specific job description")
-    
-    user_assessment = UserAssessment(ranking_system)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📄 Upload Your Resume")
-        resume_file = st.file_uploader(
-            "Choose your resume file",
-            type=['pdf', 'docx', 'txt'],
-            help="Supported formats: PDF, DOCX, TXT"
-        )
-    
-    with col2:
-        st.subheader("📋 Job Description")
-        job_description = st.text_area(
-            "Paste the job description you're targeting:",
-            height=200,
-            placeholder="Paste the job description here..."
-        )
-    
-    if resume_file and job_description.strip():
-        if st.button("🔍 Analyze My Resume", type="primary"):
-            with st.spinner("Analyzing your resume..."):
-                assessment = user_assessment.assess_resume(resume_file, job_description)
-                
-                if 'error' in assessment:
-                    st.error(f"Error processing resume: {assessment['error']}")
-                else:
-                    st.success("Analysis complete!")
-                    
-                    # Overall score
-                    st.subheader("📊 Overall Assessment")
-                    similarity_score = assessment['similarity_score']
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Match Score", f"{similarity_score:.1%}")
-                    with col2:
-                        match_level = assessment['match_level']
-                        st.metric("Match Level", match_level)
-                    
-                    # Skills breakdown
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.subheader("✅ Your Strengths")
-                        gap_analysis = assessment['gap_analysis']
-                        if gap_analysis['matching_skills']:
-                            for skill in gap_analysis['matching_skills']:
-                                st.success(f"✓ {skill.title()}")
-                        else:
-                            st.info("No matching skills found")
-                    
-                    with col2:
-                        st.subheader("❌ Skills to Develop")
-                        if gap_analysis['missing_skills']:
-                            for skill in gap_analysis['missing_skills']:
-                                st.error(f"✗ {skill.title()}")
-                        else:
-                            st.success("Great! You have all the required skills.")
-
-# ============================================================================
-# EXPERIMENT INTERFACE FUNCTIONS
-# ============================================================================
-
-def experiment7_interface(ranking_system):
-    """Experiment 7: Prompt Engineering Interface"""
-    st.title("🎯 Experiment 7: Customized Prompts for Recruitment")
-    st.markdown("### Prompt Engineering for Customer Service Context")
-    
-    prompt_engineer = PromptEngineer()
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📄 Upload Resume")
-        resume_file = st.file_uploader(
-            "Choose resume file",
-            type=['pdf', 'docx', 'txt'],
-            key="exp7_resume"
-        )
-    
-    with col2:
-        st.subheader("📋 Job Description")
-        job_description = st.text_area(
-            "Paste job description:",
-            height=200,
-            key="exp7_jd"
-        )
-    
-    if resume_file and job_description.strip():
-        if st.button("🚀 Generate Prompts", type="primary"):
-            with st.spinner("Processing..."):
-                file_extension = os.path.splitext(resume_file.name)[1].lower()
-                result = ranking_system.process_single_resume(
-                    file_content=resume_file.read(),
-                    file_extension=file_extension
-                )
-                
-                if result['success']:
-                    resume_text = result['processed_text']
-                    similarity_score = ranking_system.analyzer.calculate_similarity(
-                        resume_text, job_description
-                    )
-                    
-                    resume_skills = result.get('skills', [])
-                    jd_skills = ranking_system.preprocessor.extract_skills(job_description)
-                    
-                    gap_analyzer = SkillGapAnalyzer()
-                    gap_analysis = gap_analyzer.analyze_skill_gaps(resume_skills, jd_skills)
-                    
-                    skills_data = {
-                        'resume_skills': resume_skills,
-                        'jd_skills': jd_skills
-                    }
-                    
-                    st.success(f"✅ Semantic Similarity Score: {similarity_score:.2%}")
-                    
-                    tab1, tab2, tab3 = st.tabs([
-                        "Basic Prompt",
-                        "Advanced Prompt",
-                        "Contextual Prompt"
-                    ])
-                    
-                    with tab1:
-                        st.subheader("📝 Basic Prompt")
-                        basic_prompt = prompt_engineer.create_basic_prompt(
-                            resume_text, job_description, similarity_score
-                        )
-                        st.text_area("Generated Basic Prompt", basic_prompt, height=300)
-                    
-                    with tab2:
-                        st.subheader("📝 Advanced Prompt")
-                        advanced_prompt = prompt_engineer.create_advanced_prompt(
-                            resume_text, job_description, similarity_score, skills_data
-                        )
-                        st.text_area("Generated Advanced Prompt", advanced_prompt, height=400)
-                    
-                    with tab3:
-                        st.subheader("📝 Contextual Prompt")
-                        contextual_prompt = prompt_engineer.create_contextual_prompt(
-                            resume_text, job_description, similarity_score,
-                            skills_data, gap_analysis
-                        )
-                        st.text_area("Generated Contextual Prompt", contextual_prompt, height=500)
-                    
-                    st.markdown("---")
-                    st.subheader("📊 Comparison")
-                    comparison_df = pd.DataFrame(prompt_engineer.get_prompt_comparison())
-                    st.table(comparison_df)
-
-def experiment8_interface(ranking_system):
-    """Experiment 8: MCQ Generation Interface"""
-    st.title("📝 Experiment 8: MCQ Generation using LangChain")
-    st.markdown("### Automated Assessment Generation")
-    
-    st.sidebar.subheader("🔑 OpenAI Configuration")
-    openai_api_key = st.sidebar.text_input(
-        "Enter OpenAI API Key",
-        type="password",
-        key="exp8_api_key"
-    )
-    
-    if not openai_api_key:
-        st.warning("⚠️ Please enter your OpenAI API key in the sidebar")
-        return
-    
-    mcq_generator = MCQGenerator(openai_api_key)
-    
-    mode = st.radio(
-        "Select Generation Mode",
-        ["Job Description Based", "Resume + JD Based"],
-        key="exp8_mode"
-    )
-    
-    num_questions = st.slider("Number of Questions", 3, 10, 5, key="exp8_num")
-    
-    if mode == "Job Description Based":
-        st.subheader("🎯 Generate MCQs from Job Description")
-        jd_text = st.text_area(
-            "Enter Job Description",
-            height=300,
-            placeholder="Paste job description here...",
-            key="exp8_jd"
+    # Sidebar for navigation and API key
+    with st.sidebar:
+        st.header("⚙️ Configuration")
+        
+        # API Key input
+        gemini_api_key = st.text_input("Enter Gemini API Key", type="password", help="Required for AI-powered features")
+        
+        st.markdown("---")
+        st.header("📋 Navigation")
+        
+        # View selection
+        view_mode = st.radio(
+            "Select View",
+            ["🏢 Company View (Bulk Ranking)", "👤 User View (Individual Assessment)"]
         )
         
-        if st.button("Generate MCQs", type="primary") and jd_text:
-            with st.spinner("Generating questions..."):
-                result = mcq_generator.generate_jd_based_mcqs(jd_text, num_questions)
-                
-                if result.get('success'):
-                    st.success("✅ MCQs Generated!")
-                    parsed = mcq_generator.parse_mcq_response(result['content'])
+        st.markdown("---")
+        st.info("💡 **Tip:** Upload your resume and job description to get started!")
+    
+    # Initialize session state
+    if 'processed_data' not in st.session_state:
+        st.session_state.processed_data = None
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    
+    # Initialize core systems
+    ranking_system = ResumeRankingSystem()
+    skill_analyzer = SkillGapAnalyzer()
+    
+    # Initialize AI-powered systems (only if API key provided)
+    prompt_engineer = None
+    mcq_generator = None
+    rag_chatbot = None
+    
+    if gemini_api_key:
+        prompt_engineer = PromptEngineer(gemini_api_key)
+        mcq_generator = MCQGenerator(gemini_api_key)
+        rag_chatbot = RAGChatbot(gemini_api_key)
+    
+    # ================================
+    # COMPANY VIEW - BULK RANKING
+    # ================================
+    if "Company View" in view_mode:
+        st.header("🏢 Company View - Bulk Resume Ranking")
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.subheader("Upload Resumes")
+            uploaded_files = st.file_uploader(
+                "Upload multiple resumes (PDF, DOCX, TXT)",
+                type=['pdf', 'docx', 'txt'],
+                accept_multiple_files=True
+            )
+        
+        with col2:
+            st.subheader("Job Description")
+            job_description = st.text_area(
+                "Paste job description",
+                height=200,
+                placeholder="Enter the job description here..."
+            )
+        
+        if uploaded_files and job_description:
+            if st.button("🔍 Analyze & Rank Resumes", type="primary"):
+                with st.spinner("Processing resumes..."):
+                    processed_resumes = []
                     
-                    if parsed.get('success'):
-                        mcqs_data = parsed['mcqs']
-                        for q in mcqs_data['questions']:
-                            st.markdown(f"### Question {q['question_number']}")
-                            st.markdown(f"**{q['question_text']}**")
-                            for opt in q['options']:
-                                st.markdown(f"- {opt['option_id']}. {opt['text']}")
-                            with st.expander("Show Answer"):
-                                st.success(f"**Correct:** {q['correct_answer']}")
-                                st.info(f"**Explanation:** {q['explanation']}")
-                            st.markdown("---")
-
-def experiment9_interface(ranking_system):
-    """Experiment 9: AI Chatbot Interface"""
-    st.title("💬 Experiment 9: AI Chatbot for Job Matching")
-    st.markdown("### Interactive Q&A using RAG")
+                    for uploaded_file in uploaded_files:
+                        file_extension = os.path.splitext(uploaded_file.name)[1]
+                        file_content = uploaded_file.read()
+                        
+                        result = ranking_system.process_single_resume(
+                            file_content=file_content,
+                            file_extension=file_extension
+                        )
+                        
+                        if result['success']:
+                            result['filename'] = uploaded_file.name
+                            processed_resumes.append(result)
+                    
+                    if processed_resumes:
+                        preprocessor = TextPreprocessor()
+                        jd_processed = preprocessor.preprocess_text(job_description)
+                        
+                        analyzer = SemanticAnalyzer()
+                        
+                        for resume in processed_resumes:
+                            similarity = analyzer.calculate_similarity(
+                                resume['processed_text'],
+                                jd_processed
+                            )
+                            resume['similarity_score'] = similarity
+                        
+                        processed_resumes.sort(key=lambda x: x['similarity_score'], reverse=True)
+                        
+                        for i, resume in enumerate(processed_resumes):
+                            resume['rank'] = i + 1
+                        
+                        st.session_state.processed_data = processed_resumes
+                        st.success(f"✅ Processed {len(processed_resumes)} resumes successfully!")
+        
+        if st.session_state.processed_data:
+            st.markdown("---")
+            st.subheader("📊 Ranking Results")
+            
+            df_data = []
+            for resume in st.session_state.processed_data:
+                df_data.append({
+                    'Rank': resume['rank'],
+                    'Filename': resume['filename'],
+                    'Match Score': f"{resume['similarity_score']:.2%}",
+                    'Skills Found': len(resume['skills']),
+                    'Email': resume['email'][0] if resume['email'] else 'N/A'
+                })
+            
+            df = pd.DataFrame(df_data)
+            st.dataframe(df, use_container_width=True)
+            
+            st.subheader("📈 Visualizations")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig = px.bar(
+                    df,
+                    x='Rank',
+                    y=[float(score.strip('%'))/100 for score in df['Match Score']],
+                    title="Similarity Scores by Rank",
+                    labels={'y': 'Match Score', 'x': 'Rank'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                match_levels = []
+                for resume in st.session_state.processed_data:
+                    score = resume['similarity_score']
+                    if score > 0.7:
+                        match_levels.append("Excellent")
+                    elif score > 0.5:
+                        match_levels.append("Good")
+                    elif score > 0.3:
+                        match_levels.append("Fair")
+                    else:
+                        match_levels.append("Poor")
+                
+                fig = px.pie(
+                    names=match_levels,
+                    title="Match Level Distribution"
+                )
+                st.plotly_chart(fig, use_container_width=True)
     
-    if 'exp9_chat_history' not in st.session_state:
-        st.session_state.exp9_chat_history = []
-    if 'exp9_vectorstore_ready' not in st.session_state:
-        st.session_state.exp9_vectorstore_ready = False
-    
-    st.sidebar.subheader("🔑 OpenAI Configuration")
-    openai_api_key = st.sidebar.text_input(
-        "Enter OpenAI API Key",
-        type="password",
-        key="exp9_api_key"
-    )
-    
-    if not openai_api_key:
-        st.warning("⚠️ Please enter your OpenAI API key in the sidebar")
-        return
-    
-    st.sidebar.subheader("📄 Upload Documents")
-    resume_file = st.sidebar.file_uploader(
-        "Upload Resume",
-        type=['pdf', 'docx', 'txt'],
-        key="exp9_resume"
-    )
-    
-    jd_text = st.sidebar.text_area(
-        "Paste Job Description",
-        height=200,
-        key="exp9_jd"
-    )
-    
-    if st.sidebar.button("🚀 Initialize Chatbot"):
-        if resume_file and jd_text:
-            with st.spinner("Initializing..."):
-                try:
-                    file_extension = os.path.splitext(resume_file.name)[1].lower()
-                    resume_result = ranking_system.process_single_resume(
-                        file_content=resume_file.read(),
+    # ================================
+    # USER VIEW - INDIVIDUAL ASSESSMENT
+    # ================================
+    else:
+        st.header("👤 User View - Individual Resume Assessment")
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.subheader("📄 Upload Your Resume")
+            uploaded_resume = st.file_uploader(
+                "Upload your resume",
+                type=['pdf', 'docx', 'txt']
+            )
+        
+        with col2:
+            st.subheader("💼 Target Job Description")
+            job_description = st.text_area(
+                "Paste the job description",
+                height=200,
+                placeholder="Enter the job description you're targeting..."
+            )
+        
+        if uploaded_resume and job_description:
+            if st.button("🎯 Analyze My Resume", type="primary"):
+                with st.spinner("Analyzing your resume..."):
+                    file_extension = os.path.splitext(uploaded_resume.name)[1]
+                    file_content = uploaded_resume.read()
+                    
+                    result = ranking_system.process_single_resume(
+                        file_content=file_content,
                         file_extension=file_extension
                     )
                     
-                    if resume_result['success']:
-                        resume_text = resume_result['processed_text']
-                        chatbot = RAGChatbot(openai_api_key)
-                        vs_result = chatbot.create_vectorstore(resume_text, jd_text)
+                    if result['success']:
+                        preprocessor = TextPreprocessor()
+                        jd_processed = preprocessor.preprocess_text(job_description)
                         
-                        if vs_result['success']:
-                            similarity_score = ranking_system.analyzer.calculate_similarity(
-                                resume_text, jd_text
-                            )
-                            chain_result = chatbot.initialize_qa_chain(
-                                similarity_score,
-                                st.session_state.exp9_chat_history
-                            )
-                            
-                            if chain_result['success']:
-                                st.session_state.exp9_chatbot = chatbot
-                                st.session_state.exp9_similarity = similarity_score
-                                st.session_state.exp9_system_context = chain_result['system_context']
-                                st.session_state.exp9_vectorstore_ready = True
-                                st.sidebar.success("✅ Chatbot ready!")
-                except Exception as e:
-                    st.sidebar.error(f"Error: {str(e)}")
-    
-    if st.session_state.exp9_vectorstore_ready:
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Match Score", f"{st.session_state.exp9_similarity:.1%}")
-        with col2:
-            st.metric("Messages", len(st.session_state.exp9_chat_history))
+                        analyzer = SemanticAnalyzer()
+                        similarity = analyzer.calculate_similarity(
+                            result['processed_text'],
+                            jd_processed
+                        )
+                        
+                        result['similarity_score'] = similarity
+                        result['job_description'] = job_description
+                        
+                        st.session_state.user_analysis = result
+                        st.success("✅ Analysis complete!")
         
-        st.markdown("---")
-        
-        # Chat display
-        for message in st.session_state.exp9_chat_history:
-            with st.chat_message(message['role']):
-                st.markdown(message['content'])
-        
-        # Chat input
-        user_input = st.chat_input("Ask a question...")
-        if user_input:
-            st.session_state.exp9_chat_history.append({'role': 'user', 'content': user_input})
-            with st.chat_message("user"):
-                st.markdown(user_input)
+        if 'user_analysis' in st.session_state:
+            result = st.session_state.user_analysis
             
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    chatbot = st.session_state.exp9_chatbot
-                    response = chatbot.get_response(
-                        user_input,
-                        st.session_state.exp9_system_context
-                    )
+            st.markdown("---")
+            
+            st.subheader("📊 Your Match Score")
+            score = result['similarity_score']
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Match Score", f"{score:.1%}")
+            with col2:
+                if score > 0.7:
+                    st.metric("Match Level", "Excellent ⭐")
+                elif score > 0.5:
+                    st.metric("Match Level", "Good 👍")
+                elif score > 0.3:
+                    st.metric("Match Level", "Fair 👌")
+                else:
+                    st.metric("Match Level", "Needs Work 📝")
+            with col3:
+                st.metric("Skills Found", len(result['skills']))
+            
+            st.markdown("---")
+            st.subheader("🎯 Skills Analysis")
+            
+            preprocessor = TextPreprocessor()
+            jd_skills = preprocessor.extract_skills(job_description)
+            resume_skills = result['skills']
+            
+            skill_gap = skill_analyzer.analyze_skill_gaps(resume_skills, jd_skills)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**✅ Matching Skills**")
+                if skill_gap['matching_skills']:
+                    for skill in skill_gap['matching_skills']:
+                        st.success(f"✓ {skill}")
+                else:
+                    st.info("No matching skills found")
+            
+            with col2:
+                st.markdown("**❌ Missing Skills**")
+                if skill_gap['missing_skills']:
+                    for skill in skill_gap['missing_skills']:
+                        st.error(f"✗ {skill}")
+                else:
+                    st.success("All required skills present!")
+            
+            with col3:
+                st.markdown("**➕ Additional Skills**")
+                if skill_gap['extra_skills']:
+                    for skill in skill_gap['extra_skills'][:5]:
+                        st.info(f"+ {skill}")
+            
+            if gemini_api_key and prompt_engineer:
+                st.markdown("---")
+                st.subheader("🤖 AI-Powered Insights")
+                
+                tabs = st.tabs(["📝 Detailed Analysis", "❓ Interview Questions", "📚 Skill Recommendations", "💬 AI Chatbot"])
+                
+                with tabs[0]:
+                    if st.button("Generate Detailed Analysis"):
+                        with st.spinner("Generating analysis..."):
+                            analysis_result = prompt_engineer.generate_detailed_analysis(
+                                result['raw_text'],
+                                job_description,
+                                score
+                            )
+                            if analysis_result['success']:
+                                st.markdown(analysis_result['analysis'])
+                            else:
+                                st.error(f"Error: {analysis_result['error']}")
+                
+                with tabs[1]:
+                    if st.button("Generate Interview Questions"):
+                        with st.spinner("Generating questions..."):
+                            # Reinitialize preprocessor here as well for safety
+                            preprocessor = TextPreprocessor()
+                            questions_result = prompt_engineer.generate_interview_questions(
+                                result['raw_text'],
+                                job_description
+                            )
+                            if questions_result['success']:
+                                st.markdown(questions_result['questions'])
+                            else:
+                                st.error(f"Error: {questions_result['error']}")
+                
+                with tabs[2]:
+                    if st.button("Get Skill Recommendations"):
+                        with st.spinner("Generating recommendations..."):
+                            rec_result = prompt_engineer.generate_skill_recommendations(
+                                result['raw_text'],
+                                job_description
+                            )
+                            if rec_result['success']:
+                                st.markdown(rec_result['recommendations'])
+                            else:
+                                st.error(f"Error: {rec_result['error']}")
+                
+                with tabs[3]:
+                    st.markdown("**Ask questions about your resume match:**")
                     
-                    if response['success']:
-                        st.markdown(response['answer'])
-                        st.session_state.exp9_chat_history.append({
-                            'role': 'assistant',
-                            'content': response['answer']
-                        })
+                    if 'chatbot_initialized' not in st.session_state:
+                        rag_chatbot.create_vectorstore(result['raw_text'], job_description)
+                        rag_chatbot.initialize_qa_chain(score)
+                        st.session_state.chatbot_initialized = True
+                    
+                    user_question = st.text_input("Your question:")
+                    if user_question:
+                        with st.spinner("Thinking..."):
+                            response = rag_chatbot.get_response(user_question)
+                            if response['success']:
+                                st.markdown(f"**Answer:** {response['answer']}")
+                                st.session_state.chat_history.append({
+                                    'role': 'user',
+                                    'content': user_question
+                                })
+                                st.session_state.chat_history.append({
+                                    'role': 'assistant',
+                                    'content': response['answer']
+                                })
+                            else:
+                                st.error(f"Error: {response['error']}")
+                    
+                    if st.session_state.chat_history:
+                        st.markdown("---")
+                        st.markdown("**Chat History:**")
+                        for msg in st.session_state.chat_history[-6:]:
+                            if msg['role'] == 'user':
+                                st.info(f"**You:** {msg['content']}")
+                            else:
+                                st.success(f"**AI:** {msg['content']}")
+            else:
+                st.warning("⚠️ Enter a Gemini API key in the sidebar to unlock AI-powered features!")
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()
